@@ -45,6 +45,15 @@ ZanyDisplayLib display(SHARP_SCK, SHARP_MOSI, SHARP_SS, 144, 168, 8000000);
 bool fullRedraw = true;
 time_t currentTime = now();
 int steps = 11000;
+
+// Battery Logic
+const int maxBatteryVoltageSampleCount = 60;
+int batteryVoltageSamples[maxBatteryVoltageSampleCount];
+int currentVoltageSampleIdx = 0;
+int currentBatteryVoltageSampleCount = 0;
+const int lutVoltage[] = {3270, 3610 ,3690, 3710, 3730, 3750, 3770, 3790, 3800, 3820, 3840, 3850, 3870, 3910, 3950, 3980, 4020, 4080, 4110, 4150, 4200};
+
+
 int minorHalfSize; // 1/2 of lesser of display width or height
 
 /* LBS Service: 00001523-1212-EFDE-1523-785FEABCD123
@@ -79,60 +88,12 @@ uint8_t button = A0;
 
 uint8_t buttonState;
 
-void drawDisplay()
-{
-  if (!fullRedraw)
-    display.clearDisplayBuffer(20, 0, 62, 40);
-  else
-    display.clearDisplayBuffer();
-
-  // Draw Time (Seconds)
-  char secondsStr[5];
-  sprintf(secondsStr, "%02d", second(currentTime));
-  display.setCursor(20, 135);
-  display.setFont(&FreeMonoBold18pt7b);
-  display.write(secondsStr);
-
-  if (fullRedraw)
-  {
-    // Draw separator lines
-    int upperSectorHeight = 44;
-    display.drawLine(0, upperSectorHeight, display.width(), upperSectorHeight, BLACK);
-    display.drawLine(0, display.height() - upperSectorHeight, display.width(), display.height() - upperSectorHeight, BLACK);
-    display.drawLine(display.width() / 2, 0, display.width() / 2, upperSectorHeight, BLACK);
-    display.drawLine(display.width() / 2, display.height() - upperSectorHeight, display.width() / 2, display.height(), BLACK);
-
-    // Time (Hours and Minutes)
-    char timeStr[9];
-    sprintf(timeStr, "%02d:%02d", hour(currentTime), minute(currentTime));
-    display.setFont(&FreeMonoBold24pt7b);
-    display.setCursor(5, 77);
-    display.write(timeStr);
-
-    // Date
-    display.setFont(&FreeMonoBold9pt7b);
-    display.setCursor(2, 93);
-    display.write("Tue, 03.04.2022");
-
-    // Steps
-    char stepsStr[9];
-    sprintf(stepsStr, "%d", steps);
-    display.setFont(&FreeMonoBold12pt7b);
-    display.setCursor(8, 30);
-    display.write(stepsStr);
-    display.refresh(0, 167);
-    fullRedraw = false; // Only readraw part of the screen next cycle
-  }
-  else
-  {
-    display.refresh(20, 62);
-  }
-}
-
 void setup()
 {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LED_STATE_ON); // led off
+
+  setupBattery();
 
   /*
    * https://wiki.seeedstudio.com/XIAO_BLE/#playing-with-the-built-in-3-in-one-led
@@ -180,7 +141,137 @@ void setup()
   display.setRotation(1);
 
   drawDisplay();
-  startAdv();   
+  startAdv();
+}
+
+void loop()
+{
+  currentTime++;   
+  fullRedraw = second(currentTime) == 0;
+  addBatteryVoltageSampleToBuffer();
+  drawDisplay();
+  delay(1000);
+}
+
+void setupBattery()
+{
+  // Enable reading of battery voltage
+  pinMode(VBAT_ENABLE, OUTPUT);
+  pinMode(PIN_VBAT, INPUT);
+  
+  // Charge indicator?
+  pinMode(17, INPUT);
+
+  digitalWrite(VBAT_ENABLE, LOW);
+  
+  // initialize ADC 2.4V/4096
+  analogReference(AR_INTERNAL_2_4);  // Vref=2.4V
+  analogReadResolution(12);         // 4096
+}
+
+void addBatteryVoltageSampleToBuffer()
+{
+  auto currentVoltage = analogRead(PIN_VBAT);
+  batteryVoltageSamples[currentVoltageSampleIdx] = currentVoltage;
+  if(currentBatteryVoltageSampleCount < maxBatteryVoltageSampleCount)
+    currentBatteryVoltageSampleCount++;
+  currentVoltageSampleIdx++;
+  currentVoltageSampleIdx %= maxBatteryVoltageSampleCount;
+}
+
+double readAverageBatteryVoltageInMillivoltsFromBuffer()
+{
+  double analogSampleSum = 0;
+  for(int i = 0; i < currentBatteryVoltageSampleCount; i++)
+  {
+    analogSampleSum += batteryVoltageSamples[i];
+  }
+
+  auto averageAnalogSample = analogSampleSum / currentBatteryVoltageSampleCount;
+  return (2.961 * 2.4 * averageAnalogSample / 4096 * 1.0196 + 0.05) * 1000;
+}
+
+double getPercentageFromBatteryVoltage(double voltageInMillivolts)
+{
+  for(int i=0; i < 21; i++)
+  {     
+    if(lutVoltage[i] > voltageInMillivolts)
+    {
+      if(i == 0)
+        return 0.0;
+      
+      auto lowerVoltageBound = lutVoltage[i-1];
+      auto upperVoltageBound = lutVoltage[i];
+      auto lowerPercentageBound = (i-1) * 5;
+      auto upperPercentageBound = i * 5;
+      auto factor = (voltageInMillivolts - lowerVoltageBound) / (upperVoltageBound - lowerVoltageBound);
+      return (lowerPercentageBound * (1-factor) + upperPercentageBound * factor);
+    }
+  }
+
+  return 100.0;
+}
+
+void drawDisplay()
+{
+  // fullRedraw = true; // TODO: only added for testing purposes
+  if (!fullRedraw)
+    display.clearDisplayBuffer(20, 0, 62, 40);
+  else
+    display.clearDisplayBuffer();
+
+  // Draw Time (Seconds)
+  char secondsStr[5];
+  sprintf(secondsStr, "%02d", second(currentTime));
+  display.setCursor(20, 135);
+  display.setFont(&FreeMonoBold18pt7b);
+  display.write(secondsStr);
+
+  if (fullRedraw)
+  {
+    // Draw separator lines
+    int upperSectorHeight = 44;
+    display.drawLine(0, upperSectorHeight, display.width(), upperSectorHeight, BLACK);
+    display.drawLine(0, display.height() - upperSectorHeight, display.width(), display.height() - upperSectorHeight, BLACK);
+    display.drawLine(display.width() / 2, 0, display.width() / 2, upperSectorHeight, BLACK);
+    display.drawLine(display.width() / 2, display.height() - upperSectorHeight, display.width() / 2, display.height(), BLACK);
+
+    // Time (Hours and Minutes)
+    char timeStr[9];
+    sprintf(timeStr, "%02d:%02d", hour(currentTime), minute(currentTime));
+    display.setFont(&FreeMonoBold24pt7b);
+    display.setCursor(5, 77);
+    display.write(timeStr);
+
+    // Date
+    display.setFont(&FreeMonoBold9pt7b);
+    display.setCursor(2, 93);
+    display.write("Tue, 03.04.2022");
+
+    // Steps
+    char stepsStr[9];
+    sprintf(stepsStr, "%d", steps);
+    display.setFont(&FreeMonoBold12pt7b);
+    display.setCursor(8, 30);
+    display.write(stepsStr);
+
+    // Battery
+    auto voltageMs = readAverageBatteryVoltageInMillivoltsFromBuffer();
+    auto percentage = getPercentageFromBatteryVoltage(voltageMs);
+    char battStr[4];    
+    sprintf(battStr, "%.0f%%", percentage);
+    display.setFont(&FreeMonoBold12pt7b);
+    display.setCursor(100, 30);
+    display.write(battStr);
+
+    // Refresh full display
+    display.refresh(0, 167);
+    fullRedraw = false; // Only readraw part of the screen next cycle
+  }
+  else
+  {
+    display.refresh(20, 62);
+  }
 }
 
 void startAdv(void)
@@ -207,9 +298,9 @@ void startAdv(void)
      https://developer.apple.com/library/content/qa/qa1931/_index.html
   */
   Bluefruit.Advertising.restartOnDisconnect(true);
-  Bluefruit.Advertising.setInterval(32*3, 244*3); // in unit of 0.625 ms
-  Bluefruit.Advertising.setFastTimeout(1);   // number of seconds in fast mode
-  Bluefruit.Advertising.start(0);             // 0 = Don't stop advertising after n seconds
+  Bluefruit.Advertising.setInterval(32 * 3, 244 * 3); // in unit of 0.625 ms
+  Bluefruit.Advertising.setFastTimeout(1);            // number of seconds in fast mode
+  Bluefruit.Advertising.start(0);                     // 0 = Don't stop advertising after n seconds
 }
 
 int writes = 0;
@@ -219,22 +310,17 @@ void led_write_callback(uint16_t conn_hdl, BLECharacteristic *chr, uint8_t *data
       (unsigned long)data[0] + ((unsigned long)data[1] << (8 * 1)) + ((unsigned long)data[2] << (8 * 2)) + ((unsigned long)data[3] << (8 * 3));
 
   currentTime = (time_t)unixEpochSeconds;
-  fullRedraw = true;
+  // fullRedraw = true;
 }
 
-void loop()
-{
-  currentTime++;  
-  drawDisplay();
-  delay(1000);
-}
+
 
 // callback invoked when central connects
 void connect_callback(uint16_t conn_handle)
 {
   (void)conn_handle;
-  // BLEConnection* conn = Bluefruit.Connection(conn_handle);
-  // conn->requestConnectionParameter(130, 2, 500);
+  BLEConnection* conn = Bluefruit.Connection(conn_handle);
+  conn->requestConnectionParameter(90, 2, 500);
 
   Serial.println("Connected");
 }
@@ -252,139 +338,4 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason)
   Serial.println();
   Serial.print("Disconnected, reason = 0x");
   Serial.println(reason, HEX);
-}
-
-void testdrawline()
-{
-  for (int i = 0; i < display.width(); i += 4)
-  {
-    display.drawLine(0, 0, i, display.height() - 1, BLACK);
-    display.refresh();
-  }
-  for (int i = 0; i < display.height(); i += 4)
-  {
-    display.drawLine(0, 0, display.width() - 1, i, BLACK);
-    display.refresh();
-  }
-  delay(250);
-
-  display.clearDisplay();
-  for (int i = 0; i < display.width(); i += 4)
-  {
-    display.drawLine(0, display.height() - 1, i, 0, BLACK);
-    display.refresh();
-  }
-  for (int i = display.height() - 1; i >= 0; i -= 4)
-  {
-    display.drawLine(0, display.height() - 1, display.width() - 1, i, BLACK);
-    display.refresh();
-  }
-  delay(250);
-
-  display.clearDisplay();
-  for (int i = display.width() - 1; i >= 0; i -= 4)
-  {
-    display.drawLine(display.width() - 1, display.height() - 1, i, 0, BLACK);
-    display.refresh();
-  }
-  for (int i = display.height() - 1; i >= 0; i -= 4)
-  {
-    display.drawLine(display.width() - 1, display.height() - 1, 0, i, BLACK);
-    display.refresh();
-  }
-  delay(250);
-
-  display.clearDisplay();
-  for (int i = 0; i < display.height(); i += 4)
-  {
-    display.drawLine(display.width() - 1, 0, 0, i, BLACK);
-    display.refresh();
-  }
-  for (int i = 0; i < display.width(); i += 4)
-  {
-    display.drawLine(display.width() - 1, 0, i, display.height() - 1, BLACK);
-    display.refresh();
-  }
-  delay(250);
-}
-
-void testdrawrect(void)
-{
-  for (int i = 0; i < minorHalfSize; i += 2)
-  {
-    display.drawRect(i, i, display.width() - 2 * i, display.height() - 2 * i, BLACK);
-    display.refresh();
-  }
-}
-
-void testfillrect(void)
-{
-  uint8_t color = BLACK;
-  for (int i = 0; i < minorHalfSize; i += 3)
-  {
-    // alternate colors
-    display.fillRect(i, i, display.width() - i * 2, display.height() - i * 2, color & 1);
-    display.refresh();
-    color++;
-  }
-}
-
-void testdrawroundrect(void)
-{
-  for (int i = 0; i < minorHalfSize / 2; i += 2)
-  {
-    display.drawRoundRect(i, i, display.width() - 2 * i, display.height() - 2 * i, minorHalfSize / 2, BLACK);
-    display.refresh();
-  }
-}
-
-void testfillroundrect(void)
-{
-  uint8_t color = BLACK;
-  for (int i = 0; i < minorHalfSize / 2; i += 2)
-  {
-    display.fillRoundRect(i, i, display.width() - 2 * i, display.height() - 2 * i, minorHalfSize / 2, color & 1);
-    display.refresh();
-    color++;
-  }
-}
-
-void testdrawtriangle(void)
-{
-  for (int i = 0; i < minorHalfSize; i += 5)
-  {
-    display.drawTriangle(display.width() / 2, display.height() / 2 - i,
-                         display.width() / 2 - i, display.height() / 2 + i,
-                         display.width() / 2 + i, display.height() / 2 + i, BLACK);
-    display.refresh();
-  }
-}
-
-void testfilltriangle(void)
-{
-  uint8_t color = BLACK;
-  for (int i = minorHalfSize; i > 0; i -= 5)
-  {
-    display.fillTriangle(display.width() / 2, display.height() / 2 - i,
-                         display.width() / 2 - i, display.height() / 2 + i,
-                         display.width() / 2 + i, display.height() / 2 + i, color & 1);
-    display.refresh();
-    color++;
-  }
-}
-
-void testdrawchar(void)
-{
-  display.setTextSize(1);
-  display.setTextColor(BLACK);
-  display.setCursor(0, 0);
-  display.cp437(true);
-
-  for (int i = 0; i < 256; i++)
-  {
-    if (i == '\n')
-      continue;
-    display.write(i);
-  }
-  display.refresh();
 }

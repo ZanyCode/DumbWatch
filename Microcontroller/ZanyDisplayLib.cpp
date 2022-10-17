@@ -70,8 +70,8 @@ All text above, and the splash screen must be included in any redistribution
  * spi mode!)
  */
 ZanyDisplayLib::ZanyDisplayLib(uint8_t clk, uint8_t mosi, uint8_t cs,
-                                     uint16_t width, uint16_t height,
-                                     uint32_t freq)
+                               uint16_t width, uint16_t height,
+                               uint32_t freq)
     : Adafruit_GFX(width, height)
 {
   _cs = cs;
@@ -93,8 +93,8 @@ ZanyDisplayLib::ZanyDisplayLib(uint8_t clk, uint8_t mosi, uint8_t cs,
  * @param freq The SPI clock frequency desired
  */
 ZanyDisplayLib::ZanyDisplayLib(SPIClass *theSPI, uint8_t cs,
-                                     uint16_t width, uint16_t height,
-                                     uint32_t freq)
+                               uint16_t width, uint16_t height,
+                               uint32_t freq)
     : Adafruit_GFX(width, height)
 {
   _cs = cs;
@@ -103,7 +103,7 @@ ZanyDisplayLib::ZanyDisplayLib(SPIClass *theSPI, uint8_t cs,
     delete spidev;
   }
   spidev = new Zany_SPIDevice(cs, freq, SPI_BITORDER_LSBFIRST, SPI_MODE0,
-                                  theSPI);
+                              theSPI);
 }
 
 /**
@@ -261,11 +261,11 @@ void ZanyDisplayLib::refresh(int firstLine, int lastLine)
 
   uint8_t data[total_bytes_in_transaction];
   data[0] = _sharpmem_vcom | SHARPMEM_BIT_WRITECMD;
-  for (int j = 0; j < number_of_lines; j++)  
+  for (int j = 0; j < number_of_lines; j++)
   {
     // Send address byte
     currentline = firstLine + j + 1;
-    auto current_line_offset_source = (currentline-1) * bytes_per_line;
+    auto current_line_offset_source = (currentline - 1) * bytes_per_line;
 
     auto line_number_idx = 1 + transfer_bytes_per_line * j;
     auto current_line_offset_dest = 1 + line_number_idx;
@@ -276,19 +276,18 @@ void ZanyDisplayLib::refresh(int firstLine, int lastLine)
     // copy over this line
     memcpy(data + current_line_offset_dest, sharpmem_buffer + current_line_offset_source, bytes_per_line);
     // Send end of line
-    data[trailer_idx] = 0x00;   
+    data[trailer_idx] = 0x00;
   }
 
   // Send another trailing 8 bits for the last line
-  data[total_bytes_in_transaction-1] = 0x00;
+  data[total_bytes_in_transaction - 1] = 0x00;
 
-  spidev->beginTransaction();  
+  spidev->beginTransaction();
   digitalWrite(_cs, HIGH);
   spidev->transfer(data, total_bytes_in_transaction);
   digitalWrite(_cs, LOW);
   spidev->endTransaction();
 }
-
 
 /**************************************************************************/
 /*!
@@ -313,7 +312,7 @@ void ZanyDisplayLib::clearDisplayBuffer(int firstLine, int firstRow, int lastLin
   for (uint16_t i = firstLine; i <= lastLine; i++)
   {
     auto current_line_offset = i * bytes_per_line;
-    if(total_row_bytes > 0)
+    if (total_row_bytes > 0)
     {
       memset(sharpmem_buffer + current_line_offset + firstRow / 8, 0xff, total_row_bytes);
     }
@@ -332,7 +331,7 @@ void ZanyDisplayLib::clearDisplayBuffer(int firstLine, int firstRow, int lastLin
       auto byteIdx = sharpmem_buffer + current_line_offset + firstRow / 8 + total_row_bytes;
       uint8_t currentValue;
       memcpy(&currentValue, byteIdx, 1);
-      auto newValue = currentValue | 0xff >> (8-non_complete_byte_rows_last);
+      auto newValue = currentValue | 0xff >> (8 - non_complete_byte_rows_last);
       memset(byteIdx, newValue, 1);
     }
   }

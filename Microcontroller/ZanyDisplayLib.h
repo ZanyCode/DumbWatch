@@ -44,7 +44,6 @@ public:
   void drawPixel(int16_t x, int16_t y, uint16_t color);
   uint8_t getPixel(uint16_t x, uint16_t y);
   void clearDisplay();
-  void refresh(void);
   void refresh(int offsetPx, int widthPx);
   void clearDisplayBuffer();
   void clearDisplayBuffer(int firstLine, int firstRow, int lastLine, int lastRow);
