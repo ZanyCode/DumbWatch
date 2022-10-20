@@ -51,8 +51,7 @@ const int maxBatteryVoltageSampleCount = 60;
 int batteryVoltageSamples[maxBatteryVoltageSampleCount];
 int currentVoltageSampleIdx = 0;
 int currentBatteryVoltageSampleCount = 0;
-const int lutVoltage[] = {3270, 3610 ,3690, 3710, 3730, 3750, 3770, 3790, 3800, 3820, 3840, 3850, 3870, 3910, 3950, 3980, 4020, 4080, 4110, 4150, 4200};
-
+const int lutVoltage[] = {3270, 3610, 3690, 3710, 3730, 3750, 3770, 3790, 3800, 3820, 3840, 3850, 3870, 3910, 3950, 3980, 4020, 4080, 4110, 4150, 4200};
 
 int minorHalfSize; // 1/2 of lesser of display width or height
 
@@ -90,9 +89,7 @@ uint8_t buttonState;
 
 void setup()
 {
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, LED_STATE_ON); // led off
-
+  disableLEDs();
   setupBattery();
 
   /*
@@ -105,13 +102,15 @@ void setup()
     */
 
   Serial.begin(115200);
-  NRF_NFCT->TASKS_DISABLE = 1;
+  NRF_NFCT->TASKS_DISABLE = 1;  
 
   // Initialize Bluefruit with max concurrent connections as Peripheral = MAX_PRPH_CONNECTION, Central = 0
   Bluefruit.begin();
   Bluefruit.Periph.setConnectCallback(connect_callback);
   Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
   Bluefruit.Periph.setConnIntervalMS(50, 4000);
+  Bluefruit.autoConnLed(false);  
+  // Bluefruit.setTxPower(-4);
 
   // Note: You must call .begin() on the BLEService before calling .begin() on
   // any characteristic(s) within that service definition.. Calling .begin() on
@@ -146,7 +145,7 @@ void setup()
 
 void loop()
 {
-  currentTime++;   
+  currentTime++;
   fullRedraw = second(currentTime) == 0;
   addBatteryVoltageSampleToBuffer();
   drawDisplay();
@@ -158,22 +157,33 @@ void setupBattery()
   // Enable reading of battery voltage
   pinMode(VBAT_ENABLE, OUTPUT);
   pinMode(PIN_VBAT, INPUT);
-  
+
   // Charge indicator?
   pinMode(17, INPUT);
 
   digitalWrite(VBAT_ENABLE, LOW);
-  
+
   // initialize ADC 2.4V/4096
-  analogReference(AR_INTERNAL_2_4);  // Vref=2.4V
+  analogReference(AR_INTERNAL_2_4); // Vref=2.4V
   analogReadResolution(12);         // 4096
+}
+
+void disableLEDs()
+{
+  pinMode(LED_BLUE, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_RED, OUTPUT);
+
+  digitalWrite(LED_BLUE, LED_STATE_ON); // led off
+  digitalWrite(LED_GREEN, LED_STATE_ON); // led off
+  digitalWrite(LED_RED, LED_STATE_ON); // led off
 }
 
 void addBatteryVoltageSampleToBuffer()
 {
   auto currentVoltage = analogRead(PIN_VBAT);
   batteryVoltageSamples[currentVoltageSampleIdx] = currentVoltage;
-  if(currentBatteryVoltageSampleCount < maxBatteryVoltageSampleCount)
+  if (currentBatteryVoltageSampleCount < maxBatteryVoltageSampleCount)
     currentBatteryVoltageSampleCount++;
   currentVoltageSampleIdx++;
   currentVoltageSampleIdx %= maxBatteryVoltageSampleCount;
@@ -182,7 +192,7 @@ void addBatteryVoltageSampleToBuffer()
 double readAverageBatteryVoltageInMillivoltsFromBuffer()
 {
   double analogSampleSum = 0;
-  for(int i = 0; i < currentBatteryVoltageSampleCount; i++)
+  for (int i = 0; i < currentBatteryVoltageSampleCount; i++)
   {
     analogSampleSum += batteryVoltageSamples[i];
   }
@@ -193,19 +203,19 @@ double readAverageBatteryVoltageInMillivoltsFromBuffer()
 
 double getPercentageFromBatteryVoltage(double voltageInMillivolts)
 {
-  for(int i=0; i < 21; i++)
-  {     
-    if(lutVoltage[i] > voltageInMillivolts)
+  for (int i = 0; i < 21; i++)
+  {
+    if (lutVoltage[i] > voltageInMillivolts)
     {
-      if(i == 0)
+      if (i == 0)
         return 0.0;
-      
-      auto lowerVoltageBound = lutVoltage[i-1];
+
+      auto lowerVoltageBound = lutVoltage[i - 1];
       auto upperVoltageBound = lutVoltage[i];
-      auto lowerPercentageBound = (i-1) * 5;
+      auto lowerPercentageBound = (i - 1) * 5;
       auto upperPercentageBound = i * 5;
       auto factor = (voltageInMillivolts - lowerVoltageBound) / (upperVoltageBound - lowerVoltageBound);
-      return (lowerPercentageBound * (1-factor) + upperPercentageBound * factor);
+      return (lowerPercentageBound * (1 - factor) + upperPercentageBound * factor);
     }
   }
 
@@ -258,7 +268,7 @@ void drawDisplay()
     // Battery
     auto voltageMs = readAverageBatteryVoltageInMillivoltsFromBuffer();
     auto percentage = getPercentageFromBatteryVoltage(voltageMs);
-    char battStr[4];    
+    char battStr[4];
     sprintf(battStr, "%.0f%%", percentage);
     display.setFont(&FreeMonoBold12pt7b);
     display.setCursor(100, 30);
@@ -298,7 +308,7 @@ void startAdv(void)
      https://developer.apple.com/library/content/qa/qa1931/_index.html
   */
   Bluefruit.Advertising.restartOnDisconnect(true);
-  Bluefruit.Advertising.setInterval(32 * 3, 244 * 3); // in unit of 0.625 ms
+  Bluefruit.Advertising.setInterval(244 * 6, 244 * 6); // in unit of 0.625 ms
   Bluefruit.Advertising.setFastTimeout(1);            // number of seconds in fast mode
   Bluefruit.Advertising.start(0);                     // 0 = Don't stop advertising after n seconds
 }
@@ -313,13 +323,11 @@ void led_write_callback(uint16_t conn_hdl, BLECharacteristic *chr, uint8_t *data
   // fullRedraw = true;
 }
 
-
-
 // callback invoked when central connects
 void connect_callback(uint16_t conn_handle)
 {
   (void)conn_handle;
-  BLEConnection* conn = Bluefruit.Connection(conn_handle);
+  BLEConnection *conn = Bluefruit.Connection(conn_handle);
   conn->requestConnectionParameter(90, 2, 500);
 
   Serial.println("Connected");
