@@ -14,6 +14,7 @@
    - https://apps.apple.com/us/app/nrf-blinky/id1325014347
    - https://play.google.com/store/apps/details?id=no.nordicsemi.android.nrfblinky
 */
+#define DBG_ADVERTISE_AND_REFRESH false
 
 #include <TimeLib.h>
 #include <bluefruit.h>
@@ -44,7 +45,7 @@ ZanyDisplayLib display(SHARP_SCK, SHARP_MOSI, SHARP_SS, 144, 168, 8000000);
 #define WHITE 1
 bool fullRedraw = true;
 time_t currentTime = now();
-int steps = 11000;
+unsigned long steps = 0;
 
 // Battery Logic
 const int maxBatteryVoltageSampleCount = 60;
@@ -89,27 +90,47 @@ uint8_t buttonState;
 
 void setup()
 {
+  // Serial.begin(115200);
+  // while(!Serial);
+  // pinMode(D6, INPUT_PULLDOWN);
+  // pinMode(D2, INPUT_PULLDOWN);
+
   disableLEDs();
   setupBattery();
+  NRF_NFCT->TASKS_DISABLE = 1;
+  setupDisplay();
+  drawDisplay();
+  setupBluetooth();
+}
 
-  /*
-   * https://wiki.seeedstudio.com/XIAO_BLE/#playing-with-the-built-in-3-in-one-led
-    pinMode(LEDG, OUTPUT);
-    digitalWrite(LEDG, LED_STATE_ON); // led off
+void loop()
+{
+  // Serial.printf("%d, %d\n", digitalRead(D6),  digitalRead(D2));
+  currentTime++;
+  fullRedraw = second(currentTime) == 0;
+  addBatteryVoltageSampleToBuffer();
+  drawDisplay();
+  delay(998);
+}
 
-    pinMode(LEDB, OUTPUT);
-    digitalWrite(LEDB, LED_STATE_ON); // led off
-    */
+void setupDisplay()
+{
+  display.begin();
+  display.clearDisplay();
+  display.setTextColor(BLACK);
+  display.cp437(true);
+  display.setRotation(0);
+}
 
-  Serial.begin(115200);
-  NRF_NFCT->TASKS_DISABLE = 1;  
+void setupBluetooth()
+{
 
   // Initialize Bluefruit with max concurrent connections as Peripheral = MAX_PRPH_CONNECTION, Central = 0
   Bluefruit.begin();
   Bluefruit.Periph.setConnectCallback(connect_callback);
   Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
   Bluefruit.Periph.setConnIntervalMS(50, 4000);
-  Bluefruit.autoConnLed(false);  
+  Bluefruit.autoConnLed(false);
   // Bluefruit.setTxPower(-4);
 
   // Note: You must call .begin() on the BLEService before calling .begin() on
@@ -123,33 +144,41 @@ void setup()
   // Fixed Len  = 1 (LED state)
   lsbLED.setProperties(CHR_PROPS_READ | CHR_PROPS_WRITE);
   lsbLED.setPermission(SECMODE_OPEN, SECMODE_OPEN);
-  lsbLED.setFixedLen(4);
+  lsbLED.setFixedLen(7);
   lsbLED.begin();
   lsbLED.write8(0x00); // led = off
 
   lsbLED.setWriteCallback(led_write_callback);
 
-  // Setup the advertising packet(s)
-  Serial.println("Setting up the advertising");
+  // Advertising packet
+  Bluefruit._stopConnLed();
+  Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
+  Bluefruit.Advertising.addTxPower();
 
-  // start & clear the display
-  display.begin();
-  display.clearDisplay();
-  display.setTextColor(BLACK);
-  display.cp437(true);
-  display.setRotation(1);
+  // Include HRM Service UUID
+  Bluefruit.Advertising.addService(lbs);
 
-  drawDisplay();
-  startAdv();
-}
+  // Secondary Scan Response packet (optional)
+  // Since there is no room for 'Name' in Advertising packet
+  Bluefruit.ScanResponse.addName();
 
-void loop()
-{
-  currentTime++;
-  fullRedraw = second(currentTime) == 0;
-  addBatteryVoltageSampleToBuffer();
-  drawDisplay();
-  delay(1000);
+  /* Start Advertising
+     - Enable auto advertising if disconnected
+     - Interval:  fast mode = 20 ms, slow mode = 152.5 ms
+     - Timeout for fast mode is 30 seconds
+     - Start(timeout) with timeout = 0 will advertise forever (until connected)
+
+     For recommended advertising interval
+     https://developer.apple.com/library/content/qa/qa1931/_index.html
+  */
+  Bluefruit.Advertising.restartOnDisconnect(true);
+#if DBG_ADVERTISE_AND_REFRESH
+  Bluefruit.Advertising.setInterval(244, 244); // in unit of 0.625 ms
+#else
+  Bluefruit.Advertising.setInterval(244 * 6, 244 * 6); // in unit of 0.625 ms
+#endif
+  Bluefruit.Advertising.setFastTimeout(1); // number of seconds in fast mode
+  Bluefruit.Advertising.start(0);          // 0 = Don't stop advertising after n seconds
 }
 
 void setupBattery()
@@ -174,9 +203,9 @@ void disableLEDs()
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_RED, OUTPUT);
 
-  digitalWrite(LED_BLUE, LED_STATE_ON); // led off
+  digitalWrite(LED_BLUE, LED_STATE_ON);  // led off
   digitalWrite(LED_GREEN, LED_STATE_ON); // led off
-  digitalWrite(LED_RED, LED_STATE_ON); // led off
+  digitalWrite(LED_RED, LED_STATE_ON);   // led off
 }
 
 void addBatteryVoltageSampleToBuffer()
@@ -198,7 +227,7 @@ double readAverageBatteryVoltageInMillivoltsFromBuffer()
   }
 
   auto averageAnalogSample = analogSampleSum / currentBatteryVoltageSampleCount;
-  return (2.961 * 2.4 * averageAnalogSample / 4096 * 1.0196 + 0.05) * 1000;
+  return averageAnalogSample * 1.84525 - 130.8;
 }
 
 double getPercentageFromBatteryVoltage(double voltageInMillivolts)
@@ -224,45 +253,57 @@ double getPercentageFromBatteryVoltage(double voltageInMillivolts)
 
 void drawDisplay()
 {
-  // fullRedraw = true; // TODO: only added for testing purposes
+#if DBG_ADVERTISE_AND_REFRESH
+  fullRedraw = true; // TODO: only added for testing purposes
+#endif
+
+  // helper coordinates
+  int timeSectorHeightPx = 65;
+  float leftSectorWidthRelative = 0.56;
+  int verticalMidlinePx = display.height() / 2;
+
   if (!fullRedraw)
-    display.clearDisplayBuffer(20, 0, 62, 40);
+    display.clearDisplayBuffer(display.height() - 37, display.width() * leftSectorWidthRelative + 15, display.height() - 15, display.width() * leftSectorWidthRelative + 52);
   else
     display.clearDisplayBuffer();
 
   // Draw Time (Seconds)
   char secondsStr[5];
   sprintf(secondsStr, "%02d", second(currentTime));
-  display.setCursor(20, 135);
+  display.setCursor(display.width() * leftSectorWidthRelative + 12, display.height() - 15);
   display.setFont(&FreeMonoBold18pt7b);
   display.write(secondsStr);
 
   if (fullRedraw)
   {
     // Draw separator lines
-    int upperSectorHeight = 44;
-    display.drawLine(0, upperSectorHeight, display.width(), upperSectorHeight, BLACK);
-    display.drawLine(0, display.height() - upperSectorHeight, display.width(), display.height() - upperSectorHeight, BLACK);
-    display.drawLine(display.width() / 2, 0, display.width() / 2, upperSectorHeight, BLACK);
-    display.drawLine(display.width() / 2, display.height() - upperSectorHeight, display.width() / 2, display.height(), BLACK);
+    display.drawLine(0, verticalMidlinePx - timeSectorHeightPx / 2, display.width(), verticalMidlinePx - timeSectorHeightPx / 2, BLACK);
+    display.drawLine(0, verticalMidlinePx + timeSectorHeightPx / 2, display.width(), verticalMidlinePx + timeSectorHeightPx / 2, BLACK);
+    display.drawLine(display.width() * leftSectorWidthRelative, 0, display.width() * leftSectorWidthRelative, verticalMidlinePx - timeSectorHeightPx / 2, BLACK);
+    display.drawLine(display.width() * leftSectorWidthRelative, verticalMidlinePx + timeSectorHeightPx / 2, display.width() * leftSectorWidthRelative, display.height(), BLACK);
 
     // Time (Hours and Minutes)
     char timeStr[9];
     sprintf(timeStr, "%02d:%02d", hour(currentTime), minute(currentTime));
     display.setFont(&FreeMonoBold24pt7b);
-    display.setCursor(5, 77);
+    display.setCursor(5, verticalMidlinePx + timeSectorHeightPx / 2 - 25);
     display.write(timeStr);
 
     // Date
+    char dateStr[12];
+    sprintf(dateStr, "%s, %02d.%02d.%02d", getWeekday(currentTime), day(currentTime), month(currentTime), year(currentTime) - 2000);
     display.setFont(&FreeMonoBold9pt7b);
-    display.setCursor(2, 93);
-    display.write("Tue, 03.04.2022");
+    display.setCursor(4, verticalMidlinePx + timeSectorHeightPx / 2 - 5);
+
+    display.write(dateStr);
 
     // Steps
     char stepsStr[9];
     sprintf(stepsStr, "%d", steps);
     display.setFont(&FreeMonoBold12pt7b);
-    display.setCursor(8, 30);
+    display.setCursor(4, 20);
+    display.write("Steps");
+    display.setCursor(4, 43);
     display.write(stepsStr);
 
     // Battery
@@ -271,56 +312,28 @@ void drawDisplay()
     char battStr[4];
     sprintf(battStr, "%.0f%%", percentage);
     display.setFont(&FreeMonoBold12pt7b);
-    display.setCursor(100, 30);
+    display.setCursor(display.width() * leftSectorWidthRelative + 4, 20);
+    display.write("Batt");
+    display.setCursor(display.width() * leftSectorWidthRelative + 4, 43);
     display.write(battStr);
 
     // Refresh full display
     display.refresh(0, 167);
-    fullRedraw = false; // Only readraw part of the screen next cycle
+    fullRedraw = false; // Only redraw part of the screen next cycle
   }
   else
   {
-    display.refresh(20, 62);
+    display.refresh(display.height() - 37, display.height() - 15);
   }
 }
 
-void startAdv(void)
-{
-  // Advertising packet
-  Bluefruit._stopConnLed();
-  Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
-  Bluefruit.Advertising.addTxPower();
-
-  // Include HRM Service UUID
-  Bluefruit.Advertising.addService(lbs);
-
-  // Secondary Scan Response packet (optional)
-  // Since there is no room for 'Name' in Advertising packet
-  Bluefruit.ScanResponse.addName();
-
-  /* Start Advertising
-     - Enable auto advertising if disconnected
-     - Interval:  fast mode = 20 ms, slow mode = 152.5 ms
-     - Timeout for fast mode is 30 seconds
-     - Start(timeout) with timeout = 0 will advertise forever (until connected)
-
-     For recommended advertising interval
-     https://developer.apple.com/library/content/qa/qa1931/_index.html
-  */
-  Bluefruit.Advertising.restartOnDisconnect(true);
-  Bluefruit.Advertising.setInterval(244 * 6, 244 * 6); // in unit of 0.625 ms
-  Bluefruit.Advertising.setFastTimeout(1);            // number of seconds in fast mode
-  Bluefruit.Advertising.start(0);                     // 0 = Don't stop advertising after n seconds
-}
-
-int writes = 0;
 void led_write_callback(uint16_t conn_hdl, BLECharacteristic *chr, uint8_t *data, uint16_t len)
 {
   unsigned long unixEpochSeconds =
       (unsigned long)data[0] + ((unsigned long)data[1] << (8 * 1)) + ((unsigned long)data[2] << (8 * 2)) + ((unsigned long)data[3] << (8 * 3));
 
+  steps = (unsigned long)data[4] + ((unsigned long)data[5] << (8 * 1)) + ((unsigned long)data[6] << (8 * 2));
   currentTime = (time_t)unixEpochSeconds;
-  // fullRedraw = true;
 }
 
 // callback invoked when central connects
@@ -346,4 +359,20 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason)
   Serial.println();
   Serial.print("Disconnected, reason = 0x");
   Serial.println(reason, HEX);
+}
+
+const char* getWeekday(time_t time)
+{
+  switch (weekday(time))
+  {
+    case 1: return "SO";
+    case 2: return "MO";
+    case 3: return "DI";
+    case 4: return "MI";
+    case 5: return "DO";
+    case 6: return "FR";
+    case 7: return "SA";
+  }
+
+  return "??";
 }
