@@ -46,6 +46,7 @@ ZanyDisplayLib display(SHARP_SCK, SHARP_MOSI, SHARP_SS, 144, 168, 8000000);
 bool fullRedraw = true;
 time_t currentTime = now();
 unsigned long steps = 0;
+bool isConnected = false;
 
 // Battery Logic
 const int maxBatteryVoltageSampleCount = 60;
@@ -76,8 +77,16 @@ const uint8_t LBS_UUID_CHR_LED[] =
         0x23, 0xD1, 0xBC, 0xEA, 0x5F, 0x78, 0x23, 0x15,
         0xDE, 0xEF, 0x12, 0x12, 0x25, 0x15, 0x00, 0x00};
 
-BLEService lbs(LBS_UUID_SERVICE);
-BLECharacteristic lsbLED(LBS_UUID_CHR_LED);
+#if DBG_ADVERTISE_AND_REFRESH
+BLEUuid serviceUUID("2b12b859-1407-41b4-977b-9174e0914301");
+BLEUuid charUUID("e182417c-a449-47ce-bf93-0d9c07e68f02");
+#else
+BLEUuid serviceUUID("d9d919ee-b681-4a63-9b2d-9fb22fc56b3b");
+BLEUuid charUUID("f681631f-f2d3-42e2-b769-ab1ef3011029");
+#endif
+
+BLEService lbs(serviceUUID);
+BLECharacteristic lsbLED(charUUID);
 
 // Use on-board button if available, else use A0 pin
 #ifdef PIN_BUTTON1
@@ -124,9 +133,13 @@ void setupDisplay()
 
 void setupBluetooth()
 {
-
   // Initialize Bluefruit with max concurrent connections as Peripheral = MAX_PRPH_CONNECTION, Central = 0
   Bluefruit.begin();
+#if DBG_ADVERTISE_AND_REFRESH
+  Bluefruit.setName("DumbWatchDBG");
+#else
+  Bluefruit.setName("DumbWatch");
+#endif
   Bluefruit.Periph.setConnectCallback(connect_callback);
   Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
   Bluefruit.Periph.setConnIntervalMS(50, 4000);
@@ -263,7 +276,8 @@ void drawDisplay()
   int verticalMidlinePx = display.height() / 2;
 
   if (!fullRedraw)
-    display.clearDisplayBuffer(display.height() - 37, display.width() * leftSectorWidthRelative + 15, display.height() - 15, display.width() * leftSectorWidthRelative + 52);
+    // display.clearDisplayBuffer(display.height() - 37, display.width() * leftSectorWidthRelative + 15, display.height() - 15, display.width() * leftSectorWidthRelative + 52);
+    display.clearDisplayBuffer(display.height() - 37, 0, display.height() - 15, display.width() * leftSectorWidthRelative + 52);
   else
     display.clearDisplayBuffer();
 
@@ -274,14 +288,21 @@ void drawDisplay()
   display.setFont(&FreeMonoBold18pt7b);
   display.write(secondsStr);
 
+  // Draw connection state
+  char connectionStateStr[5];
+  sprintf(connectionStateStr, isConnected ? "Yes" : "No");
+  display.setCursor(5, display.height() - 15);
+  display.setFont(&FreeMonoBold18pt7b);
+  display.write(connectionStateStr);
+
+  // Draw separator lines
+  display.drawLine(0, verticalMidlinePx - timeSectorHeightPx / 2, display.width(), verticalMidlinePx - timeSectorHeightPx / 2, BLACK);
+  display.drawLine(0, verticalMidlinePx + timeSectorHeightPx / 2, display.width(), verticalMidlinePx + timeSectorHeightPx / 2, BLACK);
+  display.drawLine(display.width() * leftSectorWidthRelative, 0, display.width() * leftSectorWidthRelative, verticalMidlinePx - timeSectorHeightPx / 2, BLACK);
+  display.drawLine(display.width() * leftSectorWidthRelative, verticalMidlinePx + timeSectorHeightPx / 2, display.width() * leftSectorWidthRelative, display.height(), BLACK);
+
   if (fullRedraw)
   {
-    // Draw separator lines
-    display.drawLine(0, verticalMidlinePx - timeSectorHeightPx / 2, display.width(), verticalMidlinePx - timeSectorHeightPx / 2, BLACK);
-    display.drawLine(0, verticalMidlinePx + timeSectorHeightPx / 2, display.width(), verticalMidlinePx + timeSectorHeightPx / 2, BLACK);
-    display.drawLine(display.width() * leftSectorWidthRelative, 0, display.width() * leftSectorWidthRelative, verticalMidlinePx - timeSectorHeightPx / 2, BLACK);
-    display.drawLine(display.width() * leftSectorWidthRelative, verticalMidlinePx + timeSectorHeightPx / 2, display.width() * leftSectorWidthRelative, display.height(), BLACK);
-
     // Time (Hours and Minutes)
     char timeStr[9];
     sprintf(timeStr, "%02d:%02d", hour(currentTime), minute(currentTime));
@@ -329,6 +350,7 @@ void drawDisplay()
 
 void led_write_callback(uint16_t conn_hdl, BLECharacteristic *chr, uint8_t *data, uint16_t len)
 {
+  digitalWrite(LED_RED, LED_STATE_ON); // led off, for weird behavior when after first bonding led remains red
   unsigned long unixEpochSeconds =
       (unsigned long)data[0] + ((unsigned long)data[1] << (8 * 1)) + ((unsigned long)data[2] << (8 * 2)) + ((unsigned long)data[3] << (8 * 3));
 
@@ -342,6 +364,7 @@ void connect_callback(uint16_t conn_handle)
   (void)conn_handle;
   BLEConnection *conn = Bluefruit.Connection(conn_handle);
   conn->requestConnectionParameter(90, 2, 500);
+  isConnected = true;
 
   Serial.println("Connected");
 }
@@ -356,22 +379,30 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason)
   (void)conn_handle;
   (void)reason;
 
+  isConnected = false;
   Serial.println();
   Serial.print("Disconnected, reason = 0x");
   Serial.println(reason, HEX);
 }
 
-const char* getWeekday(time_t time)
+const char *getWeekday(time_t time)
 {
   switch (weekday(time))
   {
-    case 1: return "SO";
-    case 2: return "MO";
-    case 3: return "DI";
-    case 4: return "MI";
-    case 5: return "DO";
-    case 6: return "FR";
-    case 7: return "SA";
+  case 1:
+    return "SO";
+  case 2:
+    return "MO";
+  case 3:
+    return "DI";
+  case 4:
+    return "MI";
+  case 5:
+    return "DO";
+  case 6:
+    return "FR";
+  case 7:
+    return "SA";
   }
 
   return "??";
