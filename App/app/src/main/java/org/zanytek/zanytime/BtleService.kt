@@ -24,7 +24,6 @@ import kotlin.coroutines.suspendCoroutine
 
 @SuppressLint("MissingPermission")
 class BtleService(val context: Context) {
-    public var onReconnect: (() -> Unit)? = null
 
     suspend fun test()
     {
@@ -89,10 +88,6 @@ class BtleService(val context: Context) {
                                 }
                             }
 
-                            if(onReconnect != null)
-                            {
-                                onReconnect?.invoke()
-                            }
                         } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                             Log.w("BluetoothGattCallback", "Successfully disconnected from $deviceAddress")
 //                            gatt.close()

@@ -13,6 +13,10 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -31,7 +35,18 @@ import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 import kotlin.system.measureTimeMillis
 
-class EndlessService : Service() {
+class EndlessService : Service(), SensorEventListener {
+    // Old Watch UUIDs
+    private var serviceUUID = "80323644-3537-4f0b-a53b-cf494eceaab3"
+    private var charUUID = "80323644-3537-4f0b-a53b-cf494eceaab3"
+
+    // Debug UUIDS
+//    private var serviceUUID = "2b12b859-1407-41b4-977b-9174e0914301"
+//    private var charUUID = "e182417c-a449-47ce-bf93-0d9c07e68f02"
+
+    // Release UUIDs
+//    private var serviceUUID = "d9d919ee-b681-4a63-9b2d-9fb22fc56b3b"
+//    private var charUUID = "f681631f-f2d3-42e2-b769-ab1ef3011029"
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var isServiceStarted = false
@@ -42,6 +57,12 @@ class EndlessService : Service() {
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothManager.adapter
     }
+
+    private lateinit var sensorManager: SensorManager
+
+    private lateinit var step_detector: Sensor
+
+    var step = -1
 
     fun log(msg: String) {
         Log.d("ENDLESS-SERVICE", msg)
@@ -77,13 +98,18 @@ class EndlessService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        log("The service has been created".toUpperCase())
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        step_detector = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
+        val res =
+            sensorManager.registerListener(this, step_detector, SensorManager.SENSOR_DELAY_NORMAL)
+        log("The service has been created with sensor manager listener result $res")
         val notification = createNotification()
         startForeground(1, notification)
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        sensorManager.unregisterListener(this)
         log("The service has been destroyed".toUpperCase())
         Toast.makeText(this, "Service destroyed", Toast.LENGTH_SHORT).show()
     }
@@ -123,15 +149,19 @@ class EndlessService : Service() {
         // we're starting a loop in a coroutine
         GlobalScope.launch(Dispatchers.IO) {
             log("Starting Scan")
-            device = btleService.getBtDevice(bluetoothAdapter, 500000, "00001523-1212-EFDE-1523-785FEABCD123")
+            device = btleService.getBtDevice(
+                bluetoothAdapter,
+                500000,
+                serviceUUID
+            )
             log("Done scanning, device found")
             gatt = btleService.getBtGatt(device!!, true)
             gatt!!.requestConnectionPriority(CONNECTION_PRIORITY_LOW_POWER)
             var charService =
-                gatt!!.getService(UUID.fromString("00001523-1212-EFDE-1523-785FEABCD123"))
+                gatt!!.getService(UUID.fromString(serviceUUID))
 
             var characteristic =
-                charService.getCharacteristic(UUID.fromString("00001525-1212-EFDE-1523-785FEABCD123"))
+                charService.getCharacteristic(UUID.fromString(charUUID))
 
             while (isServiceStarted) {
                 log("Starting to write data")
@@ -149,11 +179,16 @@ class EndlessService : Service() {
 
     private fun getDataPackage(): ByteArray {
         val unixEpochSecond = LocalDateTime.now().toEpochSecond(ZoneOffset.UTC)
+        val stepsToday = getDayStepCount()
+        log("Steps: $stepsToday")
         val byte1 = unixEpochSecond.toByte()
-        val byte2 = (unixEpochSecond shr (8*1)).toByte()
-        val byte3 = (unixEpochSecond shr (8*2)).toByte()
-        val byte4 = (unixEpochSecond shr (8*3)).toByte()
-        return byteArrayOf(byte1, byte2, byte3, byte4)
+        val byte2 = (unixEpochSecond shr (8 * 1)).toByte()
+        val byte3 = (unixEpochSecond shr (8 * 2)).toByte()
+        val byte4 = (unixEpochSecond shr (8 * 3)).toByte()
+        val byte5 = stepsToday.toByte()
+        val byte6 = (stepsToday shr (8 * 1)).toByte()
+        val byte7 = (stepsToday shr (8 * 2)).toByte()
+        return byteArrayOf(byte1, byte2, byte3, byte4, byte5, byte6, byte7)
     }
 
     @SuppressLint("MissingPermission")
@@ -177,6 +212,22 @@ class EndlessService : Service() {
         }
         isServiceStarted = false
         setServiceState(this, ServiceState.STOPPED)
+    }
+
+    private fun getDayStepCount(): Int {
+        val sdf = SimpleDateFormat("dd/M/yyyy")
+        val currentDate = sdf.format(Date())
+        val prefs = getSharedPreferences("Steps", MODE_PRIVATE)
+        var currentSteps = prefs.getInt(currentDate, 0)
+        if (step > 0) {
+            currentSteps += step
+            step = 0
+            val edit = prefs.edit()
+            edit.putInt(currentDate, currentSteps)
+            edit.apply()
+        }
+
+        return currentSteps
     }
 
     private fun createNotification(): Notification {
@@ -221,6 +272,15 @@ class EndlessService : Service() {
             .setTicker("Ticker text")
             .setPriority(Notification.PRIORITY_HIGH) // for under android 26 compatibility
             .build()
+    }
+
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event?.sensor == step_detector) {
+            step++
+        }
+    }
+
+    override fun onAccuracyChanged(p0: Sensor?, p1: Int) {
     }
 }
 

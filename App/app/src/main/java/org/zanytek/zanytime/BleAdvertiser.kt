@@ -41,17 +41,5 @@ object BleAdvertiser {
 //            .build()
     }
 
-    fun advertiseData(): AdvertiseData {
-        val data = AdvertiseData.Builder()
-            .setIncludeDeviceName(false) // Including it will blow the length
-            .setIncludeTxPowerLevel(false)
-            .addServiceUuid(ParcelUuid(GattService.MyServiceProfile.MY_SERVICE_UUID))
-            .addServiceData(
-                ParcelUuid(GattService.MyServiceProfile.MY_SERVICE_UUID),
-                "test".toByteArray()
-            )
-            .build()
 
-        return data
-    }
 }
