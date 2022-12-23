@@ -18,15 +18,15 @@ import androidx.navigation.ui.AppBarConfiguration
 import androidx.navigation.ui.navigateUp
 import androidx.work.*
 import kotlinx.coroutines.*
-import org.zanytek.zanytime.databinding.ActivityMain2Binding
+import org.zanytek.zanytime.databinding.ActivityMainBinding
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.util.*
 import java.util.concurrent.TimeUnit
 import kotlin.math.log
 
-class MainActivity2 : AppCompatActivity() {
-    private lateinit var binding: ActivityMain2Binding
+class MainActivity : AppCompatActivity() {
+    private lateinit var binding: ActivityMainBinding
 
     fun doWorkOnce(view: View) {
         val workManager = WorkManager.getInstance(this)
@@ -49,7 +49,7 @@ class MainActivity2 : AppCompatActivity() {
                 .build()
 
         WorkManager.getInstance(this).enqueue(updateWatchRequest)
-        Log.i("MainAct2", "Enqueued periodic work request")
+        Log.i("MainAct", "Enqueued periodic work request")
     }
 
     fun stopPeriodicWorker(view: View) {
@@ -60,7 +60,7 @@ class MainActivity2 : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        binding = ActivityMain2Binding.inflate(layoutInflater)
+        binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
     }
 }

@@ -1,13 +1,14 @@
 package org.zanytek.zanytime
 
 import android.app.Service
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothManager
+import android.bluetooth.*
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -30,6 +31,39 @@ class SendDataWorker(val context: Context, userParameters: WorkerParameters) :
     private var charUUID = "e182417c-a449-47ce-bf93-0d9c07e68f02"
     private var deviceName = "DumbWatchDBG"
 
+    override suspend fun doWork(): Result {
+        Log.i("SendDataWorker", "Entering doWork")
+        sendDataToWatch()
+        writeLatestUpdateToPrefs()
+        Log.i("SendDataWorker", "Finished with DoWork")
+        return Result.success()
+    }
+
+    private suspend fun sendDataToWatch() {
+        val bluetoothManager =
+            context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+
+        val device = bluetoothManager.adapter.bondedDevices.first { it.name == deviceName }
+        val gatt = getBtGatt(device!!, false)
+        gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_LOW_POWER)
+        val charService =
+            gatt.getService(UUID.fromString(serviceUUID))
+        val characteristic = charService.getCharacteristic(UUID.fromString(charUUID))
+        characteristic?.value = getDataPackage()
+        gatt.writeCharacteristic(characteristic)
+        gatt.disconnect()
+        gatt.close()
+    }
+
+    private fun writeLatestUpdateToPrefs() {
+        val prefs = context.getSharedPreferences("LastUpdate", Service.MODE_PRIVATE)
+        val edit = prefs.edit()
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+        val currentDate = sdf.format(Date())
+        edit.putString("UpdateTime", currentDate)
+        edit.apply()
+    }
+
     private fun getDataPackage(): ByteArray {
         val unixEpochSecond = LocalDateTime.now().toEpochSecond(ZoneOffset.UTC)
         val stepsToday = 12000
@@ -44,31 +78,67 @@ class SendDataWorker(val context: Context, userParameters: WorkerParameters) :
         return byteArrayOf(byte1, byte2, byte3, byte4, byte5, byte6, byte7)
     }
 
-    override suspend fun doWork(): Result {
-        Log.i("SendDataWorker", "Entering doWork")
-        val bluetoothManager =
-            context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+    suspend fun getBtGatt(device: BluetoothDevice, autoConnect: Boolean): BluetoothGatt {
+        return suspendCoroutine { cont ->
+            var resumed = false
 
-        val device = bluetoothManager.adapter.bondedDevices.first { it.name == deviceName }
-        val gatt = BtleService(this.context).getBtGatt(device!!, false)
-        gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_LOW_POWER)
-        val charService =
-            gatt.getService(UUID.fromString(serviceUUID))
-        val characteristic = charService.getCharacteristic(UUID.fromString(charUUID))
-        characteristic?.value = getDataPackage()
-        gatt.writeCharacteristic(characteristic)
-        gatt.disconnect()
-        gatt.close()
+            device.connectGatt(context, autoConnect, object : BluetoothGattCallback() {
+                override fun onConnectionStateChange(
+                    gatt: BluetoothGatt,
+                    status: Int,
+                    newState: Int
+                ) {
+                    val deviceAddress = gatt.device.address
 
-        val prefs = context.getSharedPreferences("LastUpdate", Service.MODE_PRIVATE)
-        val currentSteps = prefs.getString("UpdateTime", "None")
-        val edit = prefs.edit()
-        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
-        val currentDate = sdf.format(Date())
-        edit.putString("UpdateTime", currentDate)
-        edit.apply()
+                    if (status == BluetoothGatt.GATT_SUCCESS) {
+                        if (newState == BluetoothProfile.STATE_CONNECTED) {
+                            Log.w(
+                                "BluetoothGattCallback",
+                                "Successfully connected to $deviceAddress"
+                            )
+                            Handler(Looper.getMainLooper()).post {
+                                if (!gatt.discoverServices() && !resumed) {
+                                    resumed = true
+                                    cont.resumeWith(kotlin.Result.failure(Throwable("Service Discovery Failed")))
+                                }
+                            }
 
-        Log.i("SendDataWorker", "Finished with DoWork")
-        return Result.success()
+                        } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                            Log.w(
+                                "BluetoothGattCallback",
+                                "Successfully disconnected from $deviceAddress"
+                            )
+//                            gatt.close()
+                            if (!resumed) {
+                                resumed = true
+                                cont.resumeWith(kotlin.Result.failure(Throwable("Somehow got into disconnected state")))
+                            }
+                        }
+                    } else {
+                        Log.w(
+                            "BluetoothGattCallback",
+                            "Error $status encountered for $deviceAddress! Disconnecting..."
+                        )
+                        gatt.close()
+                        if (!resumed) {
+                            resumed = true
+                            cont.resumeWith(kotlin.Result.failure(Throwable("Error $status encountered for $deviceAddress! Disconnecting...")))
+                        }
+                    }
+                }
+
+                override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
+                    super.onServicesDiscovered(gatt, status)
+                    if (gatt != null && !resumed) {
+                        resumed = true
+                        cont.resumeWith(kotlin.Result.success(gatt))
+                    } else if (!resumed) {
+                        resumed = true
+                        cont.resumeWith(kotlin.Result.failure(Throwable("Lost the Bluetooth Gatt")))
+                    }
+
+                }
+            })
+        }
     }
 }
