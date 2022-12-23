@@ -14,7 +14,8 @@
    - https://apps.apple.com/us/app/nrf-blinky/id1325014347
    - https://play.google.com/store/apps/details?id=no.nordicsemi.android.nrfblinky
 */
-#define DBG_ADVERTISE_AND_REFRESH false
+#define FORCE_FULL_REFRESH false
+#define DBG_UUIDS true
 
 #include <TimeLib.h>
 #include <bluefruit.h>
@@ -77,7 +78,7 @@ const uint8_t LBS_UUID_CHR_LED[] =
         0x23, 0xD1, 0xBC, 0xEA, 0x5F, 0x78, 0x23, 0x15,
         0xDE, 0xEF, 0x12, 0x12, 0x25, 0x15, 0x00, 0x00};
 
-#if DBG_ADVERTISE_AND_REFRESH
+#if DBG_UUIDS
 BLEUuid serviceUUID("2b12b859-1407-41b4-977b-9174e0914301");
 BLEUuid charUUID("e182417c-a449-47ce-bf93-0d9c07e68f02");
 #else
@@ -109,7 +110,7 @@ void setup()
   NRF_NFCT->TASKS_DISABLE = 1;
   setupDisplay();
   drawDisplay();
-  setupBluetooth();
+  setupBluetooth();  
 }
 
 void loop()
@@ -135,7 +136,7 @@ void setupBluetooth()
 {
   // Initialize Bluefruit with max concurrent connections as Peripheral = MAX_PRPH_CONNECTION, Central = 0
   Bluefruit.begin();
-#if DBG_ADVERTISE_AND_REFRESH
+#if DBG_UUIDS
   Bluefruit.setName("DumbWatchDBG");
 #else
   Bluefruit.setName("DumbWatch");
@@ -185,11 +186,10 @@ void setupBluetooth()
      https://developer.apple.com/library/content/qa/qa1931/_index.html
   */
   Bluefruit.Advertising.restartOnDisconnect(true);
-#if DBG_ADVERTISE_AND_REFRESH
-  Bluefruit.Advertising.setInterval(244, 244); // in unit of 0.625 ms
-#else
-  Bluefruit.Advertising.setInterval(244 * 6, 244 * 6); // in unit of 0.625 ms
-#endif
+
+  // Bluefruit.Advertising.setInterval(244 * 6, 244 * 6); // in unit of 0.625 ms
+  Bluefruit.Advertising.setIntervalMS(1000, 1000);
+
   Bluefruit.Advertising.setFastTimeout(1); // number of seconds in fast mode
   Bluefruit.Advertising.start(0);          // 0 = Don't stop advertising after n seconds
 }
@@ -266,7 +266,7 @@ double getPercentageFromBatteryVoltage(double voltageInMillivolts)
 
 void drawDisplay()
 {
-#if DBG_ADVERTISE_AND_REFRESH
+#if FORCE_FULL_REFRESH
   fullRedraw = true; // TODO: only added for testing purposes
 #endif
 

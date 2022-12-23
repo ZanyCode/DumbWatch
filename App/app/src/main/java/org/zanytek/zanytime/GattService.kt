@@ -58,14 +58,14 @@ import java.util.*
  */
 class GattService : Service() {
     // Debug constants
-//    private var serviceUUID = "2b12b859-1407-41b4-977b-9174e0914301"
-//    private var charUUID = "e182417c-a449-47ce-bf93-0d9c07e68f02"
-//    private var deviceName = "DumbWatchDBG"
+    private var serviceUUID = "2b12b859-1407-41b4-977b-9174e0914301"
+    private var charUUID = "e182417c-a449-47ce-bf93-0d9c07e68f02"
+    private var deviceName = "DumbWatchDBG"
 
     // Release constants
-    private var serviceUUID = "d9d919ee-b681-4a63-9b2d-9fb22fc56b3b"
-    private var charUUID = "f681631f-f2d3-42e2-b769-ab1ef3011029"
-    private var deviceName = "DumbWatch"
+//    private var serviceUUID = "d9d919ee-b681-4a63-9b2d-9fb22fc56b3b"
+//    private var charUUID = "f681631f-f2d3-42e2-b769-ab1ef3011029"
+//    private var deviceName = "DumbWatch"
 
     private val bluetoothAdapter: BluetoothAdapter by lazy {
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager

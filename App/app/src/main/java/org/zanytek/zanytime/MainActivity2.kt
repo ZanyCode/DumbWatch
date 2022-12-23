@@ -1,6 +1,7 @@
 package org.zanytek.zanytime
 
 import android.annotation.SuppressLint
+import android.app.Service
 import android.bluetooth.*
 import android.bluetooth.le.*
 import android.content.ComponentName
@@ -10,6 +11,7 @@ import android.content.ServiceConnection
 import android.os.*
 import android.util.Log
 import android.view.View
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.navigation.findNavController
 import androidx.navigation.ui.AppBarConfiguration
@@ -68,9 +70,22 @@ class MainActivity2 : AppCompatActivity() {
     }
 
     fun doWorkOnce(view: View) {
+
         val workManager = WorkManager.getInstance(this)
-        val emotionAnalysisWorker = OneTimeWorkRequestBuilder<SendDataWorker>().build()
-        workManager.enqueue(emotionAnalysisWorker)
+        val worker = OneTimeWorkRequestBuilder<SendDataWorker>().build()
+        workManager.enqueue(worker)
+//        defaultScope.launch {
+//            val watch = DumbWatch(this@MainActivity2)
+//            Log.i("MainActivity", "Start Connect")
+//            watch.connectToBondedWatch()
+//            Log.i("MainActivity", "Finish Connect")
+//        }
+    }
+
+    fun getLastUpdateTime(view: View) {
+        val prefs = getSharedPreferences("LastUpdate", Service.MODE_PRIVATE)
+        val lastUpdate = prefs.getString("UpdateTime", "None")
+        Toast.makeText(this, lastUpdate, Toast.LENGTH_SHORT).show()
     }
 
     fun startPeriodicWorker(view: View) {
