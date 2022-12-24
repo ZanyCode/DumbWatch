@@ -1,10 +1,10 @@
 <resources>
-    <string name="app_name">ble-gatt-server</string>
+    <string name="app_name">Zanytime</string>
     <string name="gatt_service_name">Zanytime</string>
     <string name="gatt_service_description">A background BLE GATT service</string>
     <string name="gatt_service_running_notification">\"Advertising Zanytime\"</string>
     <string name="value_for_characteristic">Value for characteristic</string>
-    <string name="title_activity_main2">MainActivity2</string>
+    <string name="title_activity_main2">ZanyTime</string>
     <!-- Strings used for fragments for navigation -->
     <string name="first_fragment_label">First Fragment</string>
     <string name="second_fragment_label">Second Fragment</string>

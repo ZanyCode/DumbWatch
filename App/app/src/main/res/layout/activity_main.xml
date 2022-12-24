@@ -8,6 +8,17 @@
 
 
     <Button
+        android:id="@+id/btnRequestPermissions"
+        android:layout_width="170dp"
+        android:layout_height="84dp"
+        android:layout_marginStart="10dp"
+        android:layout_marginTop="30dp"
+        android:onClick="requestGoogleHealthConnectPermissions"
+        android:text="Request Health Connect Permissions"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/btnDoWork" />
+
+    <Button
         android:id="@+id/btnShowLatestUpdate"
         android:layout_width="170dp"
         android:layout_height="84dp"

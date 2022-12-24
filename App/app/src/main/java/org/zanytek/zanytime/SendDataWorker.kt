@@ -10,10 +10,16 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import androidx.health.connect.client.HealthConnectClient
+import androidx.health.connect.client.records.StepsRecord
+import androidx.health.connect.client.request.ReadRecordsRequest
+import androidx.health.connect.client.time.TimeRangeFilter
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import java.text.SimpleDateFormat
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.ZoneOffset
 import java.util.*
 import kotlin.coroutines.suspendCoroutine
@@ -22,14 +28,14 @@ class SendDataWorker(val context: Context, userParameters: WorkerParameters) :
     CoroutineWorker(context, userParameters) {
 
     // Release constants
-//    private var serviceUUID = "d9d919ee-b681-4a63-9b2d-9fb22fc56b3b"
-//    private var charUUID = "f681631f-f2d3-42e2-b769-ab1ef3011029"
-//    private var deviceName = "DumbWatch"
+    private var serviceUUID = "d9d919ee-b681-4a63-9b2d-9fb22fc56b3b"
+    private var charUUID = "f681631f-f2d3-42e2-b769-ab1ef3011029"
+    private var deviceName = "DumbWatch"
 
     // Debug constants
-    private var serviceUUID = "2b12b859-1407-41b4-977b-9174e0914301"
-    private var charUUID = "e182417c-a449-47ce-bf93-0d9c07e68f02"
-    private var deviceName = "DumbWatchDBG"
+//    private var serviceUUID = "2b12b859-1407-41b4-977b-9174e0914301"
+//    private var charUUID = "e182417c-a449-47ce-bf93-0d9c07e68f02"
+//    private var deviceName = "DumbWatchDBG"
 
     override suspend fun doWork(): Result {
         Log.i("SendDataWorker", "Entering doWork")
@@ -64,9 +70,9 @@ class SendDataWorker(val context: Context, userParameters: WorkerParameters) :
         edit.apply()
     }
 
-    private fun getDataPackage(): ByteArray {
+    private suspend fun getDataPackage(): ByteArray {
         val unixEpochSecond = LocalDateTime.now().toEpochSecond(ZoneOffset.UTC)
-        val stepsToday = 12000
+        val stepsToday = readStepsForCurrentDay()
         Log.i("MainActivity", "Steps: $stepsToday")
         val byte1 = unixEpochSecond.toByte()
         val byte2 = (unixEpochSecond shr (8 * 1)).toByte()
@@ -76,6 +82,21 @@ class SendDataWorker(val context: Context, userParameters: WorkerParameters) :
         val byte6 = (stepsToday shr (8 * 1)).toByte()
         val byte7 = (stepsToday shr (8 * 2)).toByte()
         return byteArrayOf(byte1, byte2, byte3, byte4, byte5, byte6, byte7)
+    }
+
+    suspend fun readStepsForCurrentDay(): Long {
+        val healthConnectClient = HealthConnectClient.getOrCreate(context)
+        val startTime = LocalDate.now().atTime(LocalTime.MIN)
+        val endTime = LocalDate.now().atTime(LocalTime.MAX)
+        val response =
+            healthConnectClient.readRecords(
+                ReadRecordsRequest(
+                    StepsRecord::class,
+                    timeRangeFilter = TimeRangeFilter.between(startTime, endTime)
+                )
+            )
+
+        return response.records.sumOf { it.count }
     }
 
     suspend fun getBtGatt(device: BluetoothDevice, autoConnect: Boolean): BluetoothGatt {

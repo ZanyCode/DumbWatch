@@ -12,7 +12,13 @@ import android.os.*
 import android.util.Log
 import android.view.View
 import android.widget.Toast
+import androidx.activity.result.ActivityResultLauncher
 import androidx.appcompat.app.AppCompatActivity
+import androidx.health.connect.client.HealthConnectClient
+import androidx.health.connect.client.PermissionController
+import androidx.health.connect.client.permission.HealthPermission
+import androidx.health.connect.client.records.StepsRecord
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.findNavController
 import androidx.navigation.ui.AppBarConfiguration
 import androidx.navigation.ui.navigateUp
@@ -27,6 +33,20 @@ import kotlin.math.log
 
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
+    private val healthConnectPermissions = setOf(
+        HealthPermission.createReadPermission(StepsRecord::class),
+    )
+    private val requestHealthConnectPermissions =
+        registerForActivityResult(PermissionController.createRequestPermissionResultContract()) { granted ->
+            if (granted.containsAll(healthConnectPermissions)) {
+                Log.i("Zanytime", "All necessary permissions granted after asking connect api")
+            } else {
+                Log.i(
+                    "Zanytime",
+                    "Necessary permissions not granted, even after asking connect api"
+                )
+            }
+        }
 
     fun doWorkOnce(view: View) {
         val workManager = WorkManager.getInstance(this)
@@ -54,6 +74,21 @@ class MainActivity : AppCompatActivity() {
 
     fun stopPeriodicWorker(view: View) {
         WorkManager.getInstance(this).cancelAllWorkByTag("UpdateWatch")
+    }
+
+    fun requestGoogleHealthConnectPermissions(view: View) {
+        val client = HealthConnectClient.getOrCreate(this)
+
+        lifecycleScope.launch {
+            val granted =
+                client.permissionController.getGrantedPermissions(healthConnectPermissions)
+            if (granted.containsAll(healthConnectPermissions)) {
+                Log.i("Zanytime", "All necessary permissions already granted")
+            } else {
+                Log.i("Zanytime", "Currently don't have all permissions, launching request")
+                requestHealthConnectPermissions.launch(healthConnectPermissions)
+            }
+        }
     }
 
     @SuppressLint("MissingPermission")

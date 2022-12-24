@@ -15,7 +15,7 @@
    - https://play.google.com/store/apps/details?id=no.nordicsemi.android.nrfblinky
 */
 #define FORCE_FULL_REFRESH false
-#define DBG_UUIDS true
+#define DBG_UUIDS false
 
 #include <TimeLib.h>
 #include <bluefruit.h>
